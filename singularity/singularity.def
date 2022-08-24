@@ -1,0 +1,101 @@
+Bootstrap: docker
+From: nvidia/cudagl:11.4.2-devel-ubuntu20.04
+#From: nvidia/cuda:11.4.2-cudnn8-devel-ubuntu20.04
+
+%labels
+    Author bryan.lim16@imperial.ac.uk
+    Version v0.0.1
+
+%environment
+   export PYTHONPATH=$PYTHONPATH:/workspace/lib/python3.8/site-packages/
+   export LD_LIBRARY_PATH="/workspace/lib:$LD_LIBRARY_PATH"
+   export DEBIAN_FRONTEND=noninteractive
+   export TZ=Europe/London
+   export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/nvidia_icd.json
+
+%post
+   export LD_LIBRARY_PATH="/workspace/lib:$LD_LIBRARY_PATH"
+   export TZ=Europe/London
+   export DEBIAN_FRONTEND=noninteractive
+
+   cd /home/
+   mkdir git
+   cd /home/git
+
+   apt-get -y upgrade
+   apt-get -y update
+   apt-get install -y cmake xvfb python3-tk ffmpeg pkg-config wget zip unzip pip software-properties-common python-opengl x11-xserver-utils
+   apt-get install -y --no-install-recommends libvulkan1 libvulkan-dev vulkan-utils mesa-vulkan-drivers
+   apt -y update
+   apt install -y git emacs vim libglu1-mesa libgl1-mesa-dri libxtst6 libxv1 x11-xkb-utils xauth
+   pip3 install --upgrade pip
+   pip3 install numpy matplotlib seaborn pandas imageio sklearn scipy argparse tqdm gym
+   pip3 install hydra-core --upgrade
+
+   # install visu_server and vgl
+   cd /home/git
+   wget https://downloads.sourceforge.net/project/turbovnc/2.2.3/turbovnc_2.2.3_amd64.deb
+   wget https://downloads.sourceforge.net/project/virtualgl/2.6.3/virtualgl_2.6.3_amd64.deb
+   wget https://downloads.sourceforge.net/project/libjpeg-turbo/2.0.3/libjpeg-turbo-official_2.0.3_amd64.deb
+   dpkg -i turbovnc_2.2.3_amd64.deb
+   dpkg -i virtualgl_2.6.3_amd64.deb
+   dpkg -i libjpeg-turbo-official_2.0.3_amd64.deb
+
+   # Install Jax and QDax
+   cd /home
+   mkdir workspace
+   cd workspace
+   pip3 install "jax[cuda]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+
+   # Install pytorch
+   #pip3 install torch==1.10.0+cu113 torchvision==0.11.1+cu113 torchaudio==0.10.0+cu113 -f https://download.pytorch.org/whl/cu113/torch_stable.html
+   pip3 install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu113
+
+
+   #==================================================================================
+   exit 0 #NOTFORFINAL - the lines below this "exit" will be executed only when building the final image
+   #==================================================================================
+   cd /
+   #CLONEHERE
+   echo "cloning env singularity repository"
+
+
+
+
+%runscript
+
+    ############# Starting a VNC server ##################
+    # Sleep random duration between 0 and 90 seconds, to prevent 2 vnc-servers from starting at the same time on the same host.
+    bash -c 'sleep $[ ( $RANDOM % 90 ) + 1 ]s'\
+
+    # Updating the HOME folder for the container, where the .Xauthority file will be created.
+    # That solution works iff the appropriate binding is performed (this is done automatically in gitlab-notebook jobs)
+    export HOME=/tmp/home
+    mkdir $HOME
+    D=$(/opt/TurboVNC/bin/vncserver 2>&1 | grep "Desktop" | awk '{print $3}' | sed 's/.*://g')
+    export DISPLAY=':'$D
+
+    ################# Creating results folder ########################
+    CURPATH=$(pwd)
+    cd /git/minerl_singularity/
+    DIRNAME=results
+    PATHNAME=$(date +%Y-%m-%d_%H_%M_%S)_$$
+
+    # Create a random direcotry name where XXX will be replaced with random characters
+    mkdir -p $CURPATH/$DIRNAME/
+    tmp_dir=$(mktemp -d -p $CURPATH/$DIRNAME/ ${PATHNAME}_XXX)
+    mkdir -p $tmp_dir
+    echo tmp_dir is $tmp_dir
+
+    ####################### Run program ####################
+    cd /git/minerl_singularity/
+
+# CREATE AND DEFINE DIFFERENT APPS TO RUN AS JOBS
+# Example: Can run using singularity run --app gen_job_scripts image_name
+%apprun gen_job_scripts
+    echo "Generating job scripts"
+    python3 /git/minerl_singularity/submodules/gitlab_notebook/gen_job_script.py "$@"
+
+
+%help
+    This is the development and running environment
